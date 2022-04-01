@@ -8,19 +8,26 @@ public class PhysicalNode{
     public ArrayList<Integer> voisins;//id des voisins
     public ArrayList<String> queuesIn;//nom des queues de voisin -> noeud
     public ArrayList<String> queuesOut;//nom des queues de noeuf -> voisin
-    
+    public HashMap<Integer,Integer> roadTo; //noeud a emprunter pour aller vers
+    public Channel channel;
+    public boolean visited;
+
     public PhysicalNode(int i){
         id = i;
         voisins = new ArrayList<Integer>();
         queuesIn = new ArrayList<String>();
         queuesOut = new ArrayList<String>();
+        roadTo = new HashMap<>();
     }
 
-    public PhysicalNode(int i,ArrayList<Integer> v,ArrayList<String> q1, ArrayList<String> q2){
+    public PhysicalNode(int i,ArrayList<Integer> v,ArrayList<String> q1, ArrayList<String> q2, HashMap<Integer,Integer>  h,Channel c){
         id = i;
         voisins = v;
         queuesIn = q1;
         queuesOut = q2;
+        roadTo  = h;
+        channel =c;
+        visited = false;
     }
 
     //Normalement pas besoin de ca car on creer le Noeud en une seule fois avec le constructeur du dessus
@@ -35,6 +42,88 @@ public class PhysicalNode{
     public void ajouterQueuesOut(String nomQueue){
         queuesOut.add(nomQueue);
     }
+
+    // public void getRoute(ArrayList h){
+    //     // for(int i=0; i<voisins.size();i++){
+
+    //     // }
+    //     if(id==1){
+    //         String temp = "2 "+id;//Est ce que dans tes voisins il y a 4 et on veut envoyer un message vers 4
+    //         channel.basicPublish("","1v3",null,temp.getBytes());
+    //     }
+    //     channel.basicConsume("1v3", true, deliverCallback2, consumerTag -> { });
+        
+    // }
+    
+    // DeliverCallback deliverCallback2 = (consumerTag, delivery) -> {
+    //     String message = new String(delivery.getBody(), "UTF-8");
+    //     String[] arrayTMP = message.split(" ");
+    //     int node = Integer.parseInt(arrayTMP[arrayTMP.length-1]);//Noeud vers lequel envoyer si trouvé
+
+    //     int objectif = Integer.parseInt(message);
+        
+
+    //     if(voisins.contains(objectif)){
+    //         channel.basicPublish("",id+"v"+node,null,message.getBytes());
+    //         channel.basicPublish("",id+"v"+objectif+"msg",null,message.getBytes());
+    //     }
+    // };
+
+    //Fonction pour initialiser le tableau de tous les noeuds
+    public void init(){
+        //On envoie son id a tous les voisins
+        String message ="i "+id;
+        for(int i=0;i<voisins.size();i++){
+            channel.basicPublish("",id+"v"+voisins.get(i),null,message.getBytes());
+        }
+
+
+    }
+
+
+    
+    DeliverCallback reponseInit = (consumerTag, delivery) -> {
+        String message = new String(delivery.getBody(), "UTF-8");
+        String[] arrayTMP = message.split(" ");
+        if(arrayTMP[0].equals("r")){//On verifie le type (r ou i)
+            if(Integer.parseInt(arrayTMP[1]) == id){//On regarder si on est arrivé au noeud initiateur
+                int dernier = arrayTMP.length;
+                for(int j=2;j<arrayTMP.length-1;j++){//Si oui alors on rempli roadTo avec le bon chemin
+                    if(roadTo.get(j).size() > arrayTMP.size() - 2 ){
+                        roadTo.put(arrayTMP[dernier],arrayTMP[j]);
+                    }
+                }
+            }else{//Si on est pas au noeud initiateur
+                int j =0;
+                while(j!=id){//On se positionne sur le noeud avant le courant pour lui envoyer
+                    j++;
+                }
+                j = j-1;
+                channel.basicPublish("",id+"v"+j,null,message.getBytes());
+            }
+        }else{//Si on est en cours d initialisation
+            //On s ajoute au chemin
+            if(visited == false){//A deplacer
+                visited = true;
+                message = message.concat(" "+id);
+                for(int i=0;i<voisins.size();i++){
+                    if(voisins.get(i)!= arrayTMP[arrayTMP.length-1]){
+                        channel.basicPublish("",id+"v"+voisins.get(i),null,message.getBytes());
+                    }
+                }
+            }
+        }
+            // int node = Integer.parseInt(arrayTMP[arrayTMP.length-1]);//Noeud vers lequel envoyer si trouvé
+
+        // int objectif = Integer.parseInt(message);
+        
+
+        // if(voisins.contains(objectif)){
+        //     channel.basicPublish("",id+"v"+node,null,message.getBytes());
+        //     channel.basicPublish("",id+"v"+objectif+"msg",null,message.getBytes());
+        // }
+    };
+
 
 
     public static void main(String[] argv) throws Exception{
@@ -62,6 +151,9 @@ public class PhysicalNode{
             String queueName = monID+"v"+argv[i];
             String queueName2 = argv[i]+"v"+monID;
 
+            String queueNameMsg = monID+"v"+argv[i]+"msg";
+            String queueName2Msg = argv[i]+"v"+monID+"msg";
+
             channel.queueDeclare(queueName,false,false,false,null);
             channel.queueDeclare(queueName2,false,false,false,null);
 
@@ -78,6 +170,9 @@ public class PhysicalNode{
             String message = new String(delivery.getBody(), "UTF-8");
             System.out.println(" [x] Received '" + message + "'");
         };
+
+
+      
 
         if(monID == 1){
             String messageAEnvoyer = "Bonjour";
