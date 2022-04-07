@@ -1,9 +1,10 @@
+//on fait sleep pour attendre que les routes se contruisent
 import java.util.*;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
-public class PhysicalNode{
+public class PhysicalNode implements VirtualNode{
     public int id;//id du noeud
     public ArrayList<Integer> voisins;//id des voisins
     public ArrayList<String> queuesIn;//nom des queues de voisin -> noeud
@@ -12,12 +13,30 @@ public class PhysicalNode{
     public Channel channel;
     public boolean visited;
 
+    //Attributs virtuels
+    public int virtualId;
+    public int voisinGauche;
+    public int voisinDroite;
+
     public PhysicalNode(int i){
         id = i;
         voisins = new ArrayList<Integer>();
         queuesIn = new ArrayList<String>();
         queuesOut = new ArrayList<String>();
         roadTo = new HashMap<>();
+    }
+
+    public PhysicalNode(int i,ArrayList<Integer> v,ArrayList<String> q1, ArrayList<String> q2, HashMap<Integer,ArrayList<Integer>>  h,Channel c,int vi,int vg,int vd){
+        id = i;
+        voisins = v;
+        queuesIn = q1;
+        queuesOut = q2;
+        roadTo  = h;
+        channel =c;
+        visited = false;
+        virtualId=vi;
+        voisinGauche=vg;
+        voisinDroite=vd;
     }
 
     //Fonction pour initialiser le tableau de tous les noeuds
@@ -31,8 +50,21 @@ public class PhysicalNode{
 
     }
 
+    void envoyerMessage(int id,int destinataire,String message)throws java.io.IOException{
+        int voisin = roadTo.get(destinataire).get(0);
+        StringBuilder sb = new StringBuilder(message);
+        sb.insert(0,"m "+id+" "+destinataire+" ");
+        //System.out.println(sb);
+        message = sb.toString();
+        channel.basicPublish("",id+"v"+voisin,null,message.getBytes());
+    }
+    public void sendRight(String message)throws java.io.IOException{
+        envoyerMessage(id,voisinDroite,message);
+    }
 
-
+    public void sendLeft(String message)throws java.io.IOException{
+        envoyerMessage(id,voisinGauche,message);
+    }
     public static void main(String[] argv) throws Exception{
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost("localhost");
@@ -44,9 +76,19 @@ public class PhysicalNode{
         //PhysicalNode id [ids voisins]
         int id = Integer.parseInt(argv[0]);
         ArrayList<Integer> voisins = new ArrayList<>();
-        for(int i = 1;i<argv.length;i++){
-            voisins.add(Integer.parseInt(argv[i]));
+        int w=1;
+        //Boucle pour initialiser noeud physique
+        for(w = 1;w<argv.length-3;w++){
+            voisins.add(Integer.parseInt(argv[w]));
         }
+
+        //Initialisation du noeud virtuel
+        int virtualId = Integer.parseInt(argv[w]);
+        w++;
+        int voisinGauche =  Integer.parseInt(argv[w]);
+        w++;
+        int voisinDroite = Integer.parseInt(argv[w]);
+
 
         //On creer le bon nombre de queues
         //Le premier creer, creer les queues dans les 2 sens (lui -> autre noeud) (autre noeud -> lui)
@@ -67,11 +109,11 @@ public class PhysicalNode{
         }
         ArrayList<Integer> alreadyInit = new ArrayList<Integer>();
         HashMap<Integer,ArrayList<Integer>> roadTo = new HashMap<Integer,ArrayList<Integer>>(); //noeud a emprunter pour aller vers
-        
+        noeud = new PhysicalNode(id,voisins,queuesIn, queuesOut,roadTo,channel,virtualId,voisinGauche,voisinDroite);
         //Fonction a effectuer lors de la reception d'un message sur la couche physique
         DeliverCallback reponseInit = (consumerTag, delivery) -> {
             String message = new String(delivery.getBody(), "UTF-8");
-            System.out.println(message);
+            //System.out.println(message);
             String[] arrayTMP = message.split(" ");
             if(arrayTMP[0].equals("r")){//On verifie le type (r ou i)
                 //System.out.print(arrayTMP[0]);
@@ -85,17 +127,17 @@ public class PhysicalNode{
                             temp.add(Integer.parseInt(arrayTMP[j]));                            
                         }
                         roadTo.put(Integer.parseInt(arrayTMP[dernier]),temp);
-                        if(roadTo.size()>0){
-                            System.out.print("Road to  ");
-                            for ( Integer key : roadTo.keySet() ) {
-                                System.out.print( key +" =" );
-                                for(int j=0;j<roadTo.get(key).size();j++){
-                                    System.out.print(" "+roadTo.get(key).get(j));
-                                }
-                                System.out.println();
+                        // if(roadTo.size()>0){
+                        //     System.out.print("Road to  ");
+                        //     for ( Integer key : roadTo.keySet() ) {
+                        //         System.out.print( key +" =" );
+                        //         for(int j=0;j<roadTo.get(key).size();j++){
+                        //             System.out.print(" "+roadTo.get(key).get(j));
+                        //         }
+                        //         System.out.println();
             
-                            }
-                        }
+                        //     }
+                        // }
             //         }
                 }else{//Si on est pas au noeud initiateur
                     // System.out.println("pas arrivé");
@@ -103,12 +145,12 @@ public class PhysicalNode{
                     while(Integer.parseInt(arrayTMP[j])!=id){//On se positionne sur le noeud avant le courant pour lui envoyer
                         j++;
                      }
-                    System.out.println("Mon id est "+arrayTMP[j]);
-                     System.out.println("Je vais envoyé a "+arrayTMP[j-1]);
+                    // System.out.println("Mon id est "+arrayTMP[j]);
+                    //  System.out.println("Je vais envoyé a "+arrayTMP[j-1]);
                     //  j = j-1;
                       channel.basicPublish("",id+"v"+arrayTMP[j-1],null,message.getBytes());
                 }
-            }else{//Si on est en cours d initialisation
+            }else if(arrayTMP[0].equals("i")){//Si on est en cours d initialisation
                 //System.out.print(arrayTMP[0]);
             //     //On s ajoute au chemin
                 if(!alreadyInit.contains(Integer.parseInt(arrayTMP[1]))){
@@ -127,6 +169,23 @@ public class PhysicalNode{
 
             
                  }
+            }else if(arrayTMP[0].equals("m")){
+                //On fait rien de l'id du noeud qui envoie le message
+                int id2 = Integer.parseInt(arrayTMP[1]);
+                int destinataire = Integer.parseInt(arrayTMP[2]);
+                String message2 = arrayTMP[3];
+                StringBuilder sb = new StringBuilder(arrayTMP[3]);
+                for(int i=4;i<arrayTMP.length;i++){
+                     sb.append(" "+arrayTMP[i]);
+                 }
+                 //System.out.println("destinaire ="+ destinataire + " id = "+id);
+                 message2 = sb.toString();
+                 if(destinataire == id){
+                    System.out.println(message2);
+                }else{
+
+                    noeud.envoyerMessage(id,destinataire,message2);
+                }
             }
 
             
@@ -143,6 +202,14 @@ public class PhysicalNode{
         for(int i=0;i<voisins.size();i++){
             channel.basicPublish("",id+"v"+voisins.get(i),null,message.getBytes());
         }
+        Thread.sleep(6000);
+        
+
+        if(id ==1){
+            noeud.sendRight("bonjour a tous");
+            noeud.sendLeft("bonjour a tous");
+        }
+        
 
 
         // for(int i=0;i<roadTo.size();i++){
