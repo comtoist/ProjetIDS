@@ -186,6 +186,8 @@ public class PhysicalNode implements VirtualNode{
 
                     noeud.envoyerMessage(id,destinataire,message2);
                 }
+            }else if(arrayTMP[0].equals("q")){
+                System.exit(1);
             }
 
             
@@ -203,12 +205,41 @@ public class PhysicalNode implements VirtualNode{
             channel.basicPublish("",id+"v"+voisins.get(i),null,message.getBytes());
         }
         Thread.sleep(6000);
-        
-
-        if(id ==1){
-            noeud.sendRight("bonjour a tous");
-            noeud.sendLeft("bonjour a tous");
+        Boolean exit=true;
+        while(exit){
+            Scanner sc = new Scanner(System.in);
+            String messageInput = sc.nextLine();
+            if(messageInput.equals("q")){
+                exit=false;
+                 
+                for(int i=0;i<queuesIn.size();i++){
+                    channel.basicPublish("",queuesOut.get(i),null,"q".getBytes());
+                }
+            }else{
+                    String[] messagesArray = messageInput.split(" ");
+                if(messagesArray[messagesArray.length - 1].equals("R")){
+                    StringBuffer bs=new StringBuffer();
+                    for(int s=0;s<=messagesArray.length - 2;s++){
+                        bs.append(messagesArray[s]);
+                        bs.append(" ");
+                    }
+                    noeud.sendRight(bs.toString());
+                }else if(messagesArray[messagesArray.length - 1].equals("L")){
+                    StringBuffer bs=new StringBuffer();
+                    for(int s=0;s<=messagesArray.length - 2;s++){
+                        bs.append(messagesArray[s]);
+                        bs.append(" ");
+                    }
+                    noeud.sendLeft(bs.toString());
+                }else{
+                    System.out.println("Error: Faut choisir R ou L !");
+                }
+            }
+            
         }
+        //System.exit(1);
+      //  System.out.println(messageInput);
+      
         
 
 
